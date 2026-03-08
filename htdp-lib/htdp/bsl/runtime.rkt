@@ -30,6 +30,7 @@
    insert-newlines?
    tracing? ; unclear if this should be here
    true/false/empty-as-ids?
+   empty-as-id?
    abbreviate-cons-as-list?
    use-function-output-syntax?
    output-function-instead-of-lambda?))
@@ -43,6 +44,7 @@
                        #t ; insert-newlines?
                        #f ; tracing?
                        #f ; true/false/empty-as-ids?
+                       #f ; empty-as-id?
                        (and (memq 'abbreviate-cons-as-list options) #t)
                        (and (memq 'use-function-output-syntax options) #t)
                        (and (memq 'output-function-instead-of-lambda options) #t)))
@@ -74,7 +76,7 @@
              => (lambda (name)
                   (string->symbol (format "function:~a" name))))
             (else 'function))]
-         [(and (not (sl-runtime-settings-true/false/empty-as-ids? settings)) (equal? val '())) ''()]
+         [(and (not (sl-runtime-settings-empty-as-id? settings)) (equal? val '())) ''()]
          [(equal? val set!-result) '(void)]
          [(signature? val)
           (or (signature-name val)

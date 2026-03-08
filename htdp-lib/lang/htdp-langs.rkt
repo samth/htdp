@@ -60,7 +60,7 @@
     ;; tracing? : boolean
     ;; teachpacks : (listof require-spec)
     (define-struct (htdp-lang-settings drscheme:language:simple-settings)
-      (tracing? teachpacks true/false/empty-as-ids?))
+      (tracing? teachpacks true/false/empty-as-ids? empty-as-id?))
     (define htdp-lang-settings->vector (make-->vector htdp-lang-settings))
     (define teachpacks-field-index (+ (procedure-arity drscheme:language:simple-settings) 1))
       
@@ -75,38 +75,44 @@
         (inherit get-sharing-printing get-abbreviate-cons-as-list)
           
         (define/override (default-settings)
-          (make-htdp-lang-settings 
+          (make-htdp-lang-settings
            #t
            'constructor
            'repeating-decimal
            (get-sharing-printing)
            #t
            'none
-           #f 
+           #f
            (preferences:get 'drracket:htdp:last-set-teachpacks/multi-lib)
+           #f
            #f))
           
         (define/override (default-settings? s)
           (and (super default-settings? s)
                (not (htdp-lang-settings-tracing? s))
                (null? (htdp-lang-settings-teachpacks s))
-               (not (htdp-lang-settings-true/false/empty-as-ids? s))))
+               (not (htdp-lang-settings-true/false/empty-as-ids? s))
+               (not (htdp-lang-settings-empty-as-id? s))))
           
         (define/override (marshall-settings x)
           (list (super marshall-settings x)
                 (htdp-lang-settings-tracing? x)
                 (htdp-lang-settings-teachpacks x)
-                (htdp-lang-settings-true/false/empty-as-ids? x)))
+                (htdp-lang-settings-true/false/empty-as-ids? x)
+                (htdp-lang-settings-empty-as-id? x)))
           
         (define/override (unmarshall-settings x)
           (cond
             [(and (list? x)
                   (or (= (length x) 3)
-                      (= (length x) 4))
+                      (= (length x) 4)
+                      (= (length x) 5))
                   (boolean? (list-ref x 1))
                   (list-of-require-specs? (list-ref x 2))
-                  (implies (= (length x) 4)
-                           (boolean? (list-ref x 3))))
+                  (implies (>= (length x) 4)
+                           (boolean? (list-ref x 3)))
+                  (implies (= (length x) 5)
+                           (boolean? (list-ref x 4))))
              (define drs-settings (super unmarshall-settings (first x)))
              (make-htdp-lang-settings
               (drscheme:language:simple-settings-case-sensitive drs-settings)
@@ -117,8 +123,11 @@
               (drscheme:language:simple-settings-annotations drs-settings)
               (cadr x)
               (caddr x)
-              (if (= (length x) 4)
+              (if (>= (length x) 4)
                   (list-ref x 3)
+                  #f)
+              (if (= (length x) 5)
+                  (list-ref x 4)
                   #f))]
             [else (default-settings)]))
           
@@ -194,6 +203,7 @@
                                                         (drscheme:language:simple-settings-insert-newlines settings)
                                                         (htdp-lang-settings-tracing? settings)
                                                         (htdp-lang-settings-true/false/empty-as-ids? settings)
+                                                        (htdp-lang-settings-empty-as-id? settings)
                                                         (get-abbreviate-cons-as-list)
                                                         (get-use-function-output-syntax?)
                                                         (get-output-function-instead-of-lambda?)))))))
@@ -280,6 +290,9 @@
                           (string-constant true-false-empty-style-label)
                           (list (string-constant true-false-empty-style-read)
                                 (string-constant true-false-empty-style-ids))))
+      (define output-empty (mk-radiobox
+                            "Empty list style"
+                            (list "'()" "empty")))
       (define fraction-style
         (mk-radiobox (string-constant fraction-style)
                      (list (string-constant use-mixed-fractions)
@@ -293,7 +306,7 @@
           (define-values (w h) (send lab get-graphical-min-size))
           (max w s)))
 
-      (let* ([rbs (list output-style output-tfe fraction-style)]
+      (let* ([rbs (list output-style output-tfe output-empty fraction-style)]
              [min-width (get-biggest-width rbs)])
         (for ([par (in-list rbs)])
           (send par min-width min-width)))
@@ -333,7 +346,8 @@
           'none
           (send tracing get-value)
           tps
-          (equal? (send output-tfe get-selection) 1))]
+          (equal? (send output-tfe get-selection) 1)
+          (equal? (send output-empty get-selection) 1))]
         [(settings)
          (send case-sensitive set-value 
                (drscheme:language:simple-settings-case-sensitive settings))
@@ -370,6 +384,10 @@
          (send tracing set-value (htdp-lang-settings-tracing? settings))
          (send output-tfe set-selection
                (if (htdp-lang-settings-true/false/empty-as-ids? settings)
+                   1
+                   0))
+         (send output-empty set-selection
+               (if (htdp-lang-settings-empty-as-id? settings)
                    1
                    0))
          (void)]))
@@ -598,8 +616,9 @@
               (drscheme:language:simple-settings-annotations settings)
               (htdp-lang-settings-tracing? settings)
               new-tps
-              (htdp-lang-settings-true/false/empty-as-ids? settings)))
-           (λ (settings name) 
+              (htdp-lang-settings-true/false/empty-as-ids? settings)
+              (htdp-lang-settings-empty-as-id? settings)))
+           (λ (settings name)
              (let ([new-tps (filter (λ (x) (not (equal? (tp-require->str x) name)))
                                     (htdp-lang-settings-teachpacks settings))])
                (preferences:set 'drracket:htdp:last-set-teachpacks/multi-lib new-tps)
@@ -612,8 +631,9 @@
                 (drscheme:language:simple-settings-annotations settings)
                 (htdp-lang-settings-tracing? settings)
                 new-tps
-                (htdp-lang-settings-true/false/empty-as-ids? settings))))
-           (λ (settings) 
+                (htdp-lang-settings-true/false/empty-as-ids? settings)
+                (htdp-lang-settings-empty-as-id? settings))))
+           (λ (settings)
              (preferences:set 'drracket:htdp:last-set-teachpacks/multi-lib '())
              (make-htdp-lang-settings
               (drscheme:language:simple-settings-case-sensitive settings)
@@ -624,7 +644,8 @@
               (drscheme:language:simple-settings-annotations settings)
               (htdp-lang-settings-tracing? settings)
               '()
-              (htdp-lang-settings-true/false/empty-as-ids? settings)))))
+              (htdp-lang-settings-true/false/empty-as-ids? settings)
+              (htdp-lang-settings-empty-as-id? settings)))))
         
         (inherit-field reader-module)
         (define/override (get-reader-module) reader-module)
@@ -658,10 +679,10 @@
              (define settings-list (vector->list (cadr ssv)))
              (define settings-list-len (length settings-list))
              (cond
-               [(or (equal? settings-list-len
-                            (procedure-arity make-htdp-lang-settings))
-                    (equal? settings-list-len
-                            (- (procedure-arity make-htdp-lang-settings) 1)))
+               [(and (>= settings-list-len
+                         (- (procedure-arity make-htdp-lang-settings) 2))
+                     (<= settings-list-len
+                         (procedure-arity make-htdp-lang-settings)))
                 (define new-settings-list
                   (for/list ([i (in-naturals)]
                              [e (in-list settings-list)])
@@ -669,9 +690,12 @@
                       [(= i teachpacks-field-index)
                        (unmarshall-teachpack-settings e)]
                       [else e])))
-                (if (= settings-list-len (procedure-arity make-htdp-lang-settings))
-                    (apply make-htdp-lang-settings new-settings-list)
-                    (apply make-htdp-lang-settings (append new-settings-list '(#f))))]
+                (define padded
+                  (append new-settings-list
+                          (make-list (- (procedure-arity make-htdp-lang-settings)
+                                       settings-list-len)
+                                    #f)))
+                (apply make-htdp-lang-settings padded)]
                [else
                 (default-settings)])]
             [else (default-settings)]))
