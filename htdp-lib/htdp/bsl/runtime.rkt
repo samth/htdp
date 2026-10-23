@@ -15,7 +15,7 @@
          racket/class
          (only-in test-engine/test-markup get-rewritten-error-message-parameter render-value-parameter)
          (only-in test-engine/syntax report-signature-violation! test)
-         (only-in test-engine/test-engine test-object-copy current-test-object test-object=?)
+         (only-in test-engine/test-engine initialize-test-object! test-object-copy current-test-object test-object=?)
          (only-in deinprogramm/signature/signature
                   signature? signature-name
                   signature-violation-proc)
@@ -54,6 +54,7 @@
   (read-decimal-as-inexact #f)
   ;; Set print-convert options:
   (booleans-as-true/false (sl-runtime-settings-true/false/empty-as-ids? settings))
+  (hash-table-constructor-with-lists #t)
   (print-boolean-long-form #t)
   [constructor-style-printing
    (case (sl-runtime-settings-printing-style settings)
@@ -86,10 +87,11 @@
      (and (sl-runtime-settings-use-function-output-syntax? settings)
           (procedure? x)
           (object-name x))))
+  ;; The ISL case -- sl-runtime-settings-output-function-instead-of-lambda? --
+  ;; is already covered by the current-print-convert-hook above.
   (named/undefined-handler
    (lambda (x)
-     (string->symbol
-      (format "function:~a" (object-name x)))))
+     (object-name x)))
 
   ; sharing done by print-convert
   (show-sharing (sl-runtime-settings-show-sharing? settings))
@@ -205,6 +207,8 @@
     (current-eval
      (let ((old-eval (current-eval)))
        (lambda args
+         (when interaction?
+           (initialize-test-object!))
          (let ((test-object (test-object-copy (current-test-object))))
            (dynamic-wind
              void

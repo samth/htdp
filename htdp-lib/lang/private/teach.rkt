@@ -164,6 +164,14 @@
 (define-for-syntax (stepper-ignore-checker stx)
   (stepper-syntax-property stx 'stepper-skipto '(syntax-e cdr syntax-e cdr car)))
 
+
+;; wrap-lambda-remove-name: syntax? -> syntax?
+;;   Removes source-location names for lambdas by erasing the source location
+;;   Preserves the lexical context, the syntax properties, but removes the source location
+(define-for-syntax (wrap-lambda-remove-name stx)
+  (cond [(syntax-local-name) stx]
+        [else (datum->syntax stx (syntax-e stx) #f stx)]))
+
 (define-for-syntax (map-with-index proc . lists)
   (let loop ([i 0] [lists lists] [rev-result '()])
     (if (null? (car lists))
@@ -2293,7 +2301,8 @@
                                      stx
                                      (syntax->list (syntax (lexpr ...)))
                                      args)
-            (syntax/loc stx (lambda arg-seq lexpr ...)))]
+            (wrap-lambda-remove-name
+             (syntax/loc stx (lambda arg-seq lexpr ...))))]
          ;; Bad lambda because bad args:
          [(_ args . __)
           (teach-syntax-error
@@ -2500,7 +2509,8 @@
                                      stx
                                      (syntax->list (syntax exprs))
                                      names)
-            (syntax/loc stx (lambda (name ...) . exprs)))]
+            (wrap-lambda-remove-name
+             (syntax/loc stx (lambda (name ...) . exprs))))]
          [(_ args . __)
           (teach-syntax-error
            'lambda
@@ -3234,7 +3244,7 @@
 
 (define Boolean (signature/arbitrary arbitrary-boolean Boolean (predicate boolean?)))
 
-(define True (signature True (enum #f)))
+(define True (signature True (enum #t)))
 (define False (signature False (enum #f)))
 
 (define String (signature/arbitrary arbitrary-printable-ascii-string String (predicate string?)))
@@ -3251,10 +3261,11 @@
 
 ; QuickCheck
 
-(provide for-all ==>
+(provide for-all 
          check-property
          expect expect-within expect-member-of expect-range
-         Property)
+         Property
+         (rename ==> ===>))
 
 (define-syntax (for-all stx)
   (syntax-case stx ()
@@ -3305,7 +3316,8 @@
   (with-handlers ((exn:fail?
                    (lambda (e)
                      (add-failed-check! (failed-check (property-error srcloc e)
-                                                      (exn-srcloc e))))))
+                                                      (exn-srcloc e)))
+                     #f)))
     (call-with-values
      (lambda ()
        (with-handlers

@@ -22,8 +22,8 @@
          ;; and the user's namespace in the teaching languages
          "private/set-result.rkt"
          "private/rewrite-error-message.rkt"
+         errortrace/marks-to-context
 
-         "private/continuation-mark-key.rkt"
          "private/create-htdp-executable.rkt"
          "private/tp-dialog.rkt"
          
@@ -49,7 +49,9 @@
 
 (define o (current-output-port))
 (define (oprintf . args) (apply fprintf o args))
-  
+
+(define htdp-continuation-mark-key (gensym 'htdp-continuation-mark-key))
+
 (define tool@
   (unit 
     (import drscheme:tool^)
@@ -196,7 +198,13 @@
                                                         (htdp-lang-settings-true/false/empty-as-ids? settings)
                                                         (get-abbreviate-cons-as-list)
                                                         (get-use-function-output-syntax?)
-                                                        (get-output-function-instead-of-lambda?)))))))
+                                                        (get-output-function-instead-of-lambda?)))
+
+               (errortrace-continuation-mark-set->context
+                (lambda (cms)
+                  (map
+                   (lambda (list) (apply make-srcloc list))
+                   (continuation-mark-set->list cms htdp-continuation-mark-key))))))))
 
         (define/private (teaching-languages-error-value->string settings v len)
           (let ([sp (open-output-string)])
@@ -726,12 +734,37 @@
     (define (stepper-settings-language %)
       (if (implementation? % stepper-language<%>)
           (class* % (stepper-language<%>)
+            (inherit get-abbreviate-cons-as-list
+                     get-use-function-output-syntax?
+                     get-output-function-instead-of-lambda?)
             (init-field stepper:supported)
             (init-field stepper:enable-let-lifting)
             (init-field stepper:show-lambdas-as-lambdas)
             (define/override (stepper:supported?) stepper:supported)
             (define/override (stepper:enable-let-lifting?) stepper:enable-let-lifting)
             (define/override (stepper:show-lambdas-as-lambdas?) stepper:show-lambdas-as-lambdas)
+            (define/override (stepper:pretty-print-hooks settings previous-size-hook previous-print-hook)
+              ;; avoid mutating the parameters in the current thread
+              ;; (the stepper will typically run in the same thread on subsequent invocations)
+              (thread-wait
+                (thread
+                 (lambda ()
+                   (parameterize ((pretty-print-size-hook previous-size-hook)
+                                  (pretty-print-print-hook previous-print-hook))
+                     (configure/settings
+                      (sl-runtime-settings (drscheme:language:simple-settings-printing-style settings)
+                                           (drscheme:language:simple-settings-fraction-style settings)
+                                           (drscheme:language:simple-settings-show-sharing settings)
+                                           (drscheme:language:simple-settings-insert-newlines settings)
+                                           (htdp-lang-settings-tracing? settings)
+                                           (htdp-lang-settings-true/false/empty-as-ids? settings)
+                                           (get-abbreviate-cons-as-list)
+                                           (get-use-function-output-syntax?)
+                                           (get-output-function-instead-of-lambda?)))
+                     (values (pretty-print-size-hook)
+                             (pretty-print-print-hook))))
+                 #:keep 'results)))
+
             (super-new))
           (class* % ()
             (init stepper:supported)
@@ -862,7 +895,7 @@
                            (symbol? ppath))]))
              
              [define cms (exn-continuation-marks exn)]
-             [define lcm (continuation-mark-set->list cms teaching-languages-continuation-mark-key)]
+             [define lcm (continuation-mark-set->list cms htdp-continuation-mark-key)]
              
              (cond
                [(not lcm) '()] ;; MF: I don't understand how this could possibly hold
@@ -878,7 +911,7 @@
     ;; with-mark : syntax syntax exact-nonnegative-integer -> syntax
     ;; a member of stacktrace-imports^
     ;; guarantees that the continuation marks associated with
-    ;; teaching-languages-continuation-mark-key are members of the debug-source type
+    ;; htdp-continuation-mark-key are members of the debug-source type
     (define (with-mark source-stx expr phase)
       [define source (syntax-source source-stx)]
       [define line   (syntax-line source-stx)]
@@ -889,7 +922,7 @@
       (if (and (or (symbol? source) (path? source)) (number? alpha) (number? span))
           (with-syntax ([expr  expr]
                         [mark  (list source line col alpha span)]
-                        [tlcmk teaching-languages-continuation-mark-key]
+                        [tlcmk htdp-continuation-mark-key]
                         [wcm   (syntax-shift-phase-level #'with-continuation-mark delta)]
                         [quot  (syntax-shift-phase-level #'quote delta)])
             #`(wcm (quot tlcmk) (quot mark) expr))
@@ -1022,6 +1055,7 @@
          (language-numbers '(-500 -500 5))
          (sharing-printing #t)
          (abbreviate-cons-as-list #t)
+         (use-function-output-syntax? #t)
          (allow-sharing? #t)
          (reader-module '(lib "htdp-advanced-reader.ss" "lang"))
          (debugger:supported #t)
@@ -1051,6 +1085,7 @@
          (language-numbers '(-500 -500 4))
          (sharing-printing #f)
          (abbreviate-cons-as-list #t)
+         (use-function-output-syntax? #t)
          (allow-sharing? #f)
          (reader-module '(lib "htdp-intermediate-lambda-reader.ss" "lang"))
          (stepper:supported #t)

@@ -27,7 +27,9 @@ as parameters to configure the behavior of test reports.
 Each check form may only occur at the top-level; results are collected
 and reported by the test function.  Note that the check forms only
 register checks to be performed.  The checks are actually run by the
-@racket[test] function.
+@racket[test] function. Furthermore, syntax errors in check forms 
+are intentionally delayed to run time so that students can write tests
+@emph{without} necessarily writing complete function headers.  
 
 @defform[(check-expect expr expected-expr)]{
 Checks whether the value of the @racket[expr] expression is
@@ -98,6 +100,26 @@ corresponding number in the second expression.
 
 It is an error for @racket[expr] or @racket[expected] to produce a function
 value.} 
+
+@defform[(check-random-within expr expected-expr delta-expr)
+          #:contracts ([delta-expr number?])]{
+Combines @racket[check-random] and @racket[check-within]. The
+@racket[expr] and @racket[expected-expr] expressions are evaluated with
+the same random-number sequence. Their values must be structurally equal,
+with every number in the first value within @racket[delta-expr] of the
+corresponding number in the second value. Inexact numbers are allowed.
+
+@examples[#:eval (mk-eval (require test-engine/racket-tests))
+(check-random-within (exact->inexact (random 100))
+                     (+ 0.01 (random 100))
+                     0.1)
+(test)
+]
+
+It is an error for @racket[expr] or @racket[expected-expr] to produce a
+function value.
+
+@history[#:added "1.9"]}
 
 @defform*[ [(check-error expr)
             (check-error expr msg-expr)]
@@ -228,6 +250,38 @@ An error happened instead of regular termination.
 An error happened instead of regular termination.  This also contains markup
 describing the error.
 }
+
+@defstruct*[(unexpected-error/check-* unexpected-error/markup)
+            ((srcloc srcloc?)
+             (expected any/c)
+             (exn exn?)
+	     (error-markup markup?)
+             (form-name (or/c symbol? string?)))]{
+An error happened instead of regular termination.  This also contains markup
+describing the error and the name of the check form.
+}
+
+@defstruct*[(unexpected-error/range unexpected-error/markup)
+            ((srcloc srcloc?)
+             (expected any/c)
+             (exn exn?)
+	     (error-markup markup?)
+             (min real?)
+             (max real?))]{
+An error happened instead of regular termination in a @racket[check-range] form.
+This also contains markup describing the error.
+}
+
+@defstruct*[(unexpected-error/member unexpected-error/markup)
+            ((srcloc srcloc?)
+             (expected any/c)
+             (exn exn?)
+	     (error-markup markup?)
+             (set any/c))]{
+An error happened instead of regular termination in a @racket[check-member-of] form.
+This also contains markup describing the error.
+}
+
 
 @defstruct*[(unequal fail-reason)
             ((srcloc srcloc?)
@@ -376,7 +430,7 @@ This parameter determines how to output the test results.
 The default prints to @racket[(current-output-port)].
 }
 
-@defproc[(display-test-results! [test-object test-object?]) any]{
+@defproc[(display-test-results! [markup markup?]) any]{
 This just calls the procedure bound to @racket[display-test-results-parameter].
 }
 

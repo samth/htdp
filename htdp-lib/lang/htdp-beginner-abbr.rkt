@@ -42,6 +42,7 @@
 	 check-random
 	 check-satisfied
          check-within
+         check-random-within
          check-error
          check-member-of
          check-range
@@ -53,7 +54,7 @@
          Number Real Rational Integer Natural Boolean True False String Symbol Char Any
          ListOf EmptyList
          Property
-         check-property for-all ==> expect expect-within expect-member-of expect-range)
+         check-property for-all ===> expect expect-within expect-member-of expect-range)
 
 ;; procedures:
 (provide-and-scribble

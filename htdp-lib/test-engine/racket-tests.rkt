@@ -4,6 +4,7 @@
 (provide check-expect ;; syntax : (check-expect <expression> <expression>)
          check-random ;; syntax : (check-random <expression> <expression>)
          check-within ;; syntax : (check-within <expression> <expression> <expression>)
+         check-random-within ;; syntax : (check-random-within <expression> <expression> <expression>)
          check-member-of ;; syntax : (check-member-of <expression> <expression>)
          check-range ;; syntax : (check-range <expression> <expression> <expression>)
          check-error  ;; syntax : (check-error <expression> [<expression>])
@@ -18,7 +19,8 @@
          ; racket/function
          htdp/error
          (for-syntax racket/base
-                     #;"requiring from" lang/private/firstorder #;"avoids load cycle")
+                     #;"requiring from" lang/private/firstorder #;"avoids load cycle"
+                     stepper/private/syntax-property)
          test-engine/test-engine
          (only-in test-engine/test-markup get-rewritten-error-message)
          test-engine/syntax
@@ -26,18 +28,25 @@
          simple-tree-text-markup/construct
          simple-tree-text-markup/port)
 
-(define INEXACT-NUMBERS-FMT
-  "check-expect cannot compare inexact numbers. Try (check-within test ~a range).")
+(define CHECK-EXPECT-INEXACT-NUMBERS-FMT
+  "check-expect: cannot compare inexact numbers, but the second argument is ~a.")
 (define FUNCTION-FMT
-  "check-expect cannot compare functions.")
+  "check-expect: cannot compare functions, but the second argument ~a is a function.")
+;; No fix were available; don't suggest anything.
+(define CHECK-RANDOM-INEXACT-NUMBERS-FMT
+  "check-random: cannot compare inexact numbers, but the second argument is ~a.")
 (define SATISFIED-FMT
   "check-satisfied: expects function of one argument in second position. Given ~a")
 (define CHECK-ERROR-STR-FMT
   "check-error: expects a string (the expected error message) for the second argument. Given ~s")
 (define CHECK-WITHIN-INEXACT-FMT
-  "check-within: expects an inexact number for the range. ~a is not inexact.")
+  "check-within: expects an inexact number for the range. ~s is not inexact.")
 (define CHECK-WITHIN-FUNCTION-FMT
-  "check-within cannot compare functions.")
+  "check-within cannot compare functions, but the second argument is ~a.")
+(define CHECK-RANDOM-WITHIN-NUMBER-FMT
+  "check-random-within: expects a number for the range. ~s is not a number.")
+(define CHECK-RANDOM-WITHIN-FUNCTION-FMT
+  "check-random-within cannot compare functions, but the second argument is ~a.")
 (define LIST-FMT
   "check-member-of: expects a list for the second argument (the possible outcomes). Given ~s")
 (define CHECK-MEMBER-OF-FUNCTION-FMT
@@ -96,10 +105,6 @@
         ((error-display-handler) (exn-message exn) exn)
         (get-markup))))
 
-(define (make-exn->unexpected-error src expected)
-  (lambda (exn)
-    (unexpected-error/markup src expected exn (exn->markup exn))))
-
 (define-syntax (check-expect stx)
   (check-context! 'check-expect CHECK-EXPECT-DEFN-STR stx)
   (syntax-case stx ()
@@ -109,9 +114,9 @@
 
 (define (do-check-expect test expected src)
   (error-check (lambda (v) (if (number? v) (exact? v) #t))
-               expected INEXACT-NUMBERS-FMT #t)
+               expected CHECK-EXPECT-INEXACT-NUMBERS-FMT #t)
   (error-check (lambda (v) (not (procedure? v)))
-               expected FUNCTION-FMT #f)
+               expected FUNCTION-FMT #t)
   (execute-test
    src
    (lambda ()
@@ -119,7 +124,8 @@
        (if (teach-equal? actual expected)
            #t
            (unequal src actual expected))))
-   (make-exn->unexpected-error src expected)))
+   (lambda (exn)
+     (unexpected-error/check-* src expected exn (exn->markup exn) 'check-expect))))
 
 (define-syntax (check-random stx)
   (syntax-case stx ()
@@ -136,7 +142,7 @@
                           (random-seed k)
                           (expected-thunk))))
       (error-check (lambda (v) (if (number? v) (exact? v) #t))
-                   expected INEXACT-NUMBERS-FMT #t)
+                   expected CHECK-RANDOM-INEXACT-NUMBERS-FMT #t)
       (execute-test
        src
        (lambda ()
@@ -146,7 +152,8 @@
            (if (teach-equal? actual expected)
                #t
                (unequal src actual expected))))
-       (make-exn->unexpected-error src expected)))))
+       (lambda (exn)
+         (unexpected-error/check-* src expected exn (exn->markup exn) 'check-random))))))
 
 (define-syntax (check-satisfied stx)
   (syntax-case stx ()
@@ -167,24 +174,29 @@
                                                     (raise exn)))]
                                              [else (raise exn)])))])
                         (#,prop1 x)))])
-       (check-expect-maker stx 
-                           #'do-check-satisfied 
-                           #'actual:exp
-                           (list code name)
-                           'comes-from-check-satisfied))]
+       (stepper-syntax-property
+        (check-expect-maker stx 
+                            #'do-check-satisfied 
+                            #'actual:exp
+                            (list code name)
+                            'comes-from-check-satisfied)
+        'stepper-skip-completely #t))]
     [(_ actual:exp expected-predicate:exp)
-     (let ([pred #`(let ([p? expected-predicate:exp])
+     (let ([pred #`(let ([p? #,(syntax-property #'expected-predicate:exp
+                                                'inferred-name (void))])
                      (let ((name (object-name p?)))
                        (unless (and (procedure? p?) (procedure-arity-includes? p? 1))
                          (if name  ;; this produces the BSL/ISL name 
                              (error-check (lambda (v) #f) name SATISFIED-FMT #t)
                              (error-check (lambda (v) #f) p? SATISFIED-FMT #t))))
                      p?)])
-       (check-expect-maker stx 
-                           #'do-check-satisfied
-                           #'actual:exp
-                           (list pred "unknown name")
-                           'comes-from-check-satisfied))]
+       (stepper-syntax-property
+        (check-expect-maker stx 
+                            #'do-check-satisfied
+                            #'actual:exp
+                            (list pred "unknown name")
+                            'comes-from-check-satisfied)
+        'stepper-skip-completely #t))]
     [(_ actual:exp expected-predicate:exp) 
      (raise-syntax-error 'check-satisfied "expects named function in second position." stx)]
     [_ (raise-syntax-error 'check-satisfied (argcount-error-message/stx 2 stx) stx)]))
@@ -217,7 +229,7 @@
 
 (define (do-check-within test expected within src)
   (error-check number? within CHECK-WITHIN-INEXACT-FMT #t)
-  (error-check (lambda (v) (not (procedure? v))) expected CHECK-WITHIN-FUNCTION-FMT #f)
+  (error-check (lambda (v) (not (procedure? v))) expected CHECK-WITHIN-FUNCTION-FMT #t)
   (execute-test
    src
    (lambda ()
@@ -225,7 +237,40 @@
        (if (beginner-equal~? actual expected within)
            #t
            (not-within src actual expected within))))
-   (make-exn->unexpected-error src expected)))
+   (lambda (exn)
+     (unexpected-error/check-* src expected exn (exn->markup exn) 'check-within))))
+
+(define-syntax (check-random-within stx)
+  (check-context! 'check-random-within CHECK-WITHIN-DEFN-STR stx)
+  (syntax-case stx ()
+    [(_ e1 e2 within)
+     (let ([test #`(lambda () e1)]
+           [args (list #`(lambda () e2) #`within)])
+       (check-expect-maker stx #'do-check-random-within test args 'comes-from-check-random))]
+    [_ (raise-syntax-error 'check-random-within (argcount-error-message/stx 3 stx) stx)]))
+
+;; Like check-random, the test and expected expressions are evaluated
+;; with the same freshly-seeded pseudo-random generator; like check-within,
+;; the two results are compared up to the `within` tolerance.
+(define (do-check-random-within test expected-thunk within src)
+  (error-check number? within CHECK-RANDOM-WITHIN-NUMBER-FMT #t)
+  (let ((rng (make-pseudo-random-generator))
+        (k (modulo (current-milliseconds) (sub1 (expt 2 31)))))
+    (let ((expected (parameterize ([current-pseudo-random-generator rng])
+                      (random-seed k)
+                      (expected-thunk))))
+      (error-check (lambda (v) (not (procedure? v))) expected CHECK-RANDOM-WITHIN-FUNCTION-FMT #t)
+      (execute-test
+       src
+       (lambda ()
+         (let ((actual (parameterize ([current-pseudo-random-generator rng])
+                         (random-seed k)
+                         ((test)))))
+           (if (beginner-equal~? actual expected within)
+               #t
+               (not-within src actual expected within))))
+       (lambda (exn)
+         (unexpected-error/check-* src expected exn (exn->markup exn) 'check-random-within))))))
 
 (define-syntax (check-error stx)
   (check-context! 'check-error CHECK-ERROR-DEFN-STR stx)
@@ -244,7 +289,9 @@
   (execute-test
    src
    (lambda ()
-     (with-handlers ([exn:fail?
+     (with-handlers ([(lambda (exn)
+                        (and (exn:fail? exn)
+                             (not (exn:fail:syntax? exn))))
                       (lambda (exn)
                         (let ((msg (get-rewritten-error-message exn)))
                           (if (equal? msg error)
@@ -252,7 +299,8 @@
                               (incorrect-error/markup src error exn (exn->markup exn)))))])
        (let ([actual (test)])
          (expected-error src error actual))))
-   (make-exn->unexpected-error src error))) ; probably can't happen
+    (lambda (exn)
+      (unexpected-error/check-* src error exn (exn->markup exn) 'check-error))))  ; probably can't happen
 
 (define (do-check-error/no-message test src)
   (execute-test
@@ -262,7 +310,8 @@
                       (lambda (exn) #t)])
        (let ([actual (test)])
          (expected-error src #f actual))))
-   (make-exn->unexpected-error src "any error"))) ; probably can't happen
+   (lambda (exn)
+     (unexpected-error/check-* src "any error" exn (exn->markup exn) 'check-error))))  ; probably can't happen
 
 (define-syntax (check-member-of stx)
   (check-context! 'check-member-of CHECK-EXPECT-DEFN-STR stx)
@@ -287,10 +336,11 @@
        (if (memf (lambda (expected) (teach-equal? actual expected)) expecteds)
            #t
            (not-mem src actual expecteds))))
-   (make-exn->unexpected-error src expecteds)))
+   (lambda (exn)
+     (unexpected-error/member src #f exn (exn->markup exn) expecteds))))
        
 (define-syntax (check-range stx)
-  (check-context! 'check-member-of CHECK-EXPECT-DEFN-STR stx)
+  (check-context! 'check-range CHECK-EXPECT-DEFN-STR stx)
   (syntax-case stx ()
     [(_ test min max)
      (check-expect-maker stx #'do-check-range #`test (list #`min #`max)
@@ -310,7 +360,8 @@
                 (<= min val max))
            #t
            (not-range src val min max))))
-   (make-exn->unexpected-error src (format "[~a, ~a]" min max))))
+   (lambda (exn)
+     (unexpected-error/range src #f exn (exn->markup exn) min max))))
 
 (define (error-check pred? actual fmt fmt-act?)
   (unless (pred? actual)

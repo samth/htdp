@@ -15,14 +15,15 @@
 
 @racketgrammar*+library[
 #:literals (define define-struct lambda cond else if and or require lib planet
-            check-expect check-random check-within check-error check-satisfied
+            check-expect check-random check-within check-random-within check-error check-satisfied
             : signature enum mixed -> ListOf)
-(name check-satisfied check-expect check-random check-within check-member-of check-range check-error require)
+(name check-satisfied check-expect check-random check-within check-random-within check-member-of check-range check-error require)
 [program (code:line def-or-expr #, @dots)]
 [def-or-expr definition
              expr
              test-case             
-             library-require]
+             library-require
+             signature-declaration]
 [definition (define (name variable variable #, @dots) expr)
             (define name expr)
             (define name (lambda (variable variable #, @dots) expr))
@@ -84,6 +85,7 @@ A quoted @racket[name] is a symbol. A symbol is a value, just like
              check-random
              check-satisfied
              check-within
+             check-random-within
              check-error
              check-member-of
              check-range

@@ -50,8 +50,16 @@
        (public stepper:show-consumed-and/or-clauses?)
        (define (stepper:show-consumed-and/or-clauses?) #t)
 
+       (public stepper:configure-rendering)
+       (define (stepper:configure-rendering settings)
+         (error 'stepper:configure-rendering "this must be overridden"))
+
+       (public stepper:pretty-print-hooks)
+       (define (stepper:pretty-print-hooks settings previous-size-hook previous-print-hook)
+         (error 'stepper:configure-rendering "this must be overridden"))
+
        (public stepper:render-to-sexp)
-       (define (stepper:render-to-sexp val settings language-level)
+       (define (stepper:render-to-sexp val language-level)
          (when (boolean? val)
            (log-stepper-debug "render-to-sexp got a boolean: ~v\n" val))
          (or (and (procedure? val)
@@ -200,13 +208,15 @@
     (register-toolbar-button stepper-button #:number 59)
 
     (define (stepper-button-show)
-      (unless (send stepper-button is-shown?)
-        (send (send stepper-button get-parent)
+      (define parent (send stepper-button get-parent))
+      (unless (member stepper-button (send parent get-children))
+        (send parent
               add-child stepper-button)))
 
     (define (stepper-button-hide)
-      (when (send stepper-button is-shown?)
-        (send (send stepper-button get-parent)
+      (define parent (send stepper-button get-parent))
+      (when (member stepper-button (send parent get-children))
+        (send parent
               delete-child stepper-button)))
 
     ;; when the window closes, notify all of the stepper frames.

@@ -2,11 +2,28 @@
 
 (require (only-in lang/private/teach check-property
                   for-all Integer)
+         (only-in lang/htdp-beginner
+                  [#%app #%app/bsl]
+                  empty)
+         (only-in lang/htdp-intermediate-lambda
+                  [define define/isl]
+                  [#%app #%app/isl]
+                  local)
+         (only-in htdp/bsl/runtime configure)
          (except-in rackunit check-within)
+         racket/port
+         (only-in racket/string string-contains?)
+         simple-tree-text-markup/text
          test-engine/racket-tests
          test-engine/test-engine)
 
 (require racket/format)
+
+;; To configure error messages
+(configure ;; ISL options
+ '(abbreviate-cons-as-list
+   read-accept-quasiquote
+   use-function-output-syntax))
 
 (define (assert-failed-check failed-check reason? . selector+value-list)
   (check-pred failed-check? failed-check)
@@ -29,7 +46,11 @@
     (check-pred null? failed-checks))
   (initialize-test-object!))
 
-(define (check-failure reason? . selector+value-list)
+
+(define-syntax-rule (check-failure reason . selector+value-list)
+  (check-failure* #'reason reason . selector+value-list))
+  
+(define (check-failure* src reason? . selector+value-list)
   (let* ((test-object   (run-tests!))
          (failed-checks (test-object-failed-checks test-object)))
     (check-equal? (length failed-checks) 1)
@@ -38,7 +59,7 @@
         (for/fold ([l (object-name reason?)])
                   ([f selector+value-list] [i (in-naturals)] #:when (even? i))
           (~a l ", " (object-name f))))
-      (error 'check-failure "expected failed check, none failed (~a)" names))
+      (error 'check-failure "expected failed check, none failed (~a) (~a)" names src))
     (apply assert-failed-check (car failed-checks) reason? selector+value-list))
   (initialize-test-object!))
 
@@ -60,6 +81,64 @@
                unequal-actual 1
                unequal-expected 2)
 
+(check-satisfied (cdr (list 3514)) null)
+(check-failure unsatisfied-error?
+               unsatisfied-error-exn (lambda (e)
+                                       (regexp-match? #rx"application: not a procedure"
+                                                      (exn-message e)))
+               unsatisfied-error/markup-error-markup
+               (lambda (m)
+                 (regexp-match? #rx"function call: expected a function after the open parenthesis, but received '[(][)]"
+                                (with-output-to-string
+                                  (lambda () (display-markup m))))))
+
+(define/isl even1
+  (local [(define/isl (local-even m k)
+            (even? (+ m k)))]
+    local-even))
+
+(define/isl (even2 m k)
+  (even? (+ m k)))
+
+(check-satisfied 4 even1)
+(check-failure unsatisfied-error?
+               unsatisfied-error-exn (lambda (e)
+                                       (regexp-match? #rx"local-even.*arity mismatch"
+                                                      (exn-message e)))
+               unsatisfied-error/markup-error-markup
+               (lambda (m)
+                 (regexp-match? #rx"local-even.*expects 2 arguments.*found only 1"
+                                (with-output-to-string
+                                  (lambda () (display-markup m))))))
+
+(check-satisfied 4 even2)
+(check-failure unsatisfied-error?
+               unsatisfied-error-exn
+               (lambda (e)
+                 (regexp-match?
+                  #rx"check-satisfied.*expects function of one argument.*Given even2"
+                  (exn-message e)))
+               unsatisfied-error/markup-error-markup
+               (lambda (m)
+                 (regexp-match?
+                  #rx"check-satisfied.*expects function of one argument.*Given even2"
+                  (with-output-to-string
+                    (lambda () (display-markup m))))))
+
+(check-satisfied 0 (lambda (n bad) #t))
+(check-exn
+ (lambda (e)
+   (initialize-test-object!)
+   (and (exn:fail:contract? e)
+        (regexp-match?
+         ;; BUG: error-check in test-engine/racket-tests is NOT using print-convert!
+         (pregexp
+          (string-append "check-satisfied.*expect.*one argument.*second position.*"
+                         "Given.*racket-tests[.]rkt:[[:digit:]]+:[[:digit:]]+"))
+         (exn-message e))))
+ (lambda ()
+   (run-tests!)))
+
 (check-within 1.345 1.3 .05)
 (check-success)
 
@@ -68,6 +147,16 @@
                not-within-actual 1.345
                not-within-expected 1.3
                not-within-range 0.005)
+
+(check-within 1.345 1.3 "0.05")
+(check-exn
+ (lambda (e)
+   (initialize-test-object!)
+   (and (exn:fail:contract? e)
+        (regexp-match? #rx"check-within.*\"0[.]05\" is not inexact"
+                       (exn-message e))))
+ (lambda ()
+   (run-tests!)))
 
 (check-expect (cons 1 (cons 2 (cons 3 '()))) (cons 2 (cons 2 (cons 2 '()))))
 (check-failure unequal?
@@ -174,6 +263,49 @@
                incorrect-error-expected "another message"
                incorrect-error-exn exn:fail:contract?)
 
+(check-error (empty) "function call: expected a function after the open parenthesis, but received '()")
+(check-success)
+
+(define (markup-message-matcher message)
+  (lambda (m)
+    (define markup-message (with-output-to-string
+                             (lambda () (display-markup m))))
+    ;; From the command line, tests/test-engine/racket-tests[.]rkt is
+    ;; in the error message
+    (and (string-contains? markup-message "racket-tests.rkt")
+         (string-contains? markup-message message))))
+  
+;; rational: x is unbound so this check-error shall not pass
+;; (but it also should not raise the syntax error immediately at expansion)
+(check-error x "x: this variable is not defined")
+(check-failure unexpected-error?
+               unexpected-error-exn      exn:fail:syntax?
+               unexpected-error-expected "x: this variable is not defined"
+               unexpected-error/markup-error-markup
+               ;; Ideally, we want to see the message "x: this variable is not defined" in
+               ;; the exception. Unfortunately, the #%top binding is not from *sl.
+               (markup-message-matcher "x: unbound identifier"))
+                      
+     
+(check-error (#%app/isl 123) "function call: expected a function after the open parenthesis, but received 123")
+(check-success)
+
+(check-error (#%app/bsl 123) "function call: expected a function after the open parenthesis, but found a number")
+(check-failure unexpected-error?
+               unexpected-error-exn      exn:fail:syntax?
+               unexpected-error-expected "function call: expected a function after the open parenthesis, but found a number"
+               unexpected-error/markup-error-markup
+               (markup-message-matcher
+                "function call: expected a function after the open parenthesis, but found a number"))
+
+(check-error define/isl "define: expected an open parenthesis before define, but found none")
+(check-failure unexpected-error?
+               unexpected-error-exn      exn:fail:syntax?
+               unexpected-error-expected "define: expected an open parenthesis before define, but found none"
+               unexpected-error/markup-error-markup
+               (markup-message-matcher
+                "define: expected an open parenthesis before define, but found none"))
+
 (define (create n)
   (make-ball n n 'blue))
 
@@ -242,13 +374,50 @@
                 (list x1 x2 x3 x4)))
 (check-failure unequal?)
 
-(define (h _x) (car (list (random 50) (random 20) (random 100) (random 70))))
+(define (h _x) (list (random 50) (random 20) (random 100) (random 70)))
 
-(check-random (h 0) (begin0 (random 50) (random 20) (random 100) (random 70)))
+(check-random (h 0) (list (random 50) (random 20) (random 100) (random 70)))
 (check-success)
 
-(check-random (h 0) (begin (random 20) (random 50) (random 70) (random 100))) ;; fails
+(check-random (h 0) (list (random 20) (random 50) (random 70) (random 100)))
 (check-failure unequal?)
+
+;; check-random-within: both expressions use the same seeded random
+;; sequence, and results are compared up to a tolerance. Unlike
+;; check-random, inexact results are allowed.
+(check-random-within (exact->inexact (random 100))
+                     (exact->inexact (random 100))
+                     0.001)
+(check-success)
+
+;; Same seed, but the expected value is shifted past the tolerance.
+(check-random-within (random 100) (+ 50 (random 100)) 0.001)
+(check-failure not-within?)
+
+;; A non-number tolerance is an error.
+(check-random-within 1.0 1.0 "0.1")
+(check-exn
+ (lambda (e)
+   (initialize-test-object!)
+   (and (exn:fail:contract? e)
+        (regexp-match? #rx"^check-random-within:.*\"0[.]1\" is not a number" (exn-message e))))
+ (lambda ()
+   (run-tests!)))
+
+;; A function in the expected position names the correct check form.
+(check-random-within 1.0 (lambda (x) x) 0.1)
+(check-exn
+ (lambda (e)
+   (initialize-test-object!)
+   (and (exn:fail:contract? e)
+        (regexp-match? #rx"^check-random-within cannot compare functions"
+                       (exn-message e))))
+ (lambda () (run-tests!)))
+
+;; An exception in the tested expression also names the correct check form.
+(check-random-within (error 'random-test "failed") 1.0 0.1)
+(check-failure unexpected-error/check-*?
+               unexpected-error/check-*-form-name 'check-random-within)
 
 (check-property
  (for-all ((a Integer)
@@ -268,6 +437,7 @@
    (= (/ a b) (/ b a))))
 (check-failure property-fail?)
 
-
-
-
+; check for malformed property
+(check-property
+ (for-all ((minutes)) #t))
+(check-failure property-error?)

@@ -7,12 +7,12 @@
     "compatibility-lib"
     "draw-lib"
     ("drracket-plugin-lib" #:version "1.1")
-    "errortrace-lib"
+    ("errortrace-lib" #:version "1.6")
     "html-lib"
     "images-gui-lib"
     "images-lib"
     "net-lib"
-    "pconvert-lib"
+    ["pconvert-lib" #:version "1.2"]
     "plai-lib"
     "r5rs-lib"
     "sandbox-lib"
@@ -27,7 +27,7 @@
     "typed-racket-more"
     "web-server-lib"
     "wxme-lib"
-    ("gui-lib" #:version "1.72")
+    ("gui-lib" #:version "1.80")
     "deinprogramm-signature"
     "pict-lib"))
 (define build-deps '("racket-index"
@@ -38,7 +38,7 @@
 
 (define pkg-authors '(matthias mflatt robby "sperber@deinprogramm.de"))
 
-(define version "1.8")
+(define version "1.9")
 
 (define license
   '(Apache-2.0 OR MIT))

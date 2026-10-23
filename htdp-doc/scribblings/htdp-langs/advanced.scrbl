@@ -17,10 +17,10 @@
             local let let* letrec time begin begin0 set! delay shared recur when case match unless
              ; match
              _ cons list list* struct vector box
-            check-expect check-random check-within check-member-of
+            check-expect check-random check-within check-random-within check-member-of
 	    check-range check-error check-satisfied
 	    : signature enum mixed -> ListOf)
-(expr  check-satisfied check-expect check-random check-within check-error check-member-of check-range require)
+(expr  check-satisfied check-expect check-random check-within check-random-within check-error check-member-of check-range require)
 [program (code:line def-or-expr #, @dots)]
 [def-or-expr definition
              expr
@@ -177,9 +177,9 @@ the @racket[begin] expression is the value of the first @racket[expression].}
 
 @defform[(set! variable expression)]{
 
-Evaluates @racket[expression], and then mutates the @racket[variable]
+Evaluates @racket[expression], and then changes the value of the @racket[variable]
 to have @racket[expression]'s value. The @racket[variable] must be defined 
-by @racket[define], @racket[letrec], @racket[let*], or @racket[let].}
+by @racket[define], @racket[letrec], @racket[let*], @racket[let], or @racket[local].}
 
 
 @defform[(delay expression)]{
@@ -323,6 +323,7 @@ level as they did in the @secref["intermediate-lam"] level.
              check-random
 	     check-satisfied
              check-within
+             check-random-within
              check-error
              check-member-of
              check-range

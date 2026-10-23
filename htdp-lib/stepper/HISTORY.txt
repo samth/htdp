@@ -1,6 +1,51 @@
 Stepper
 -------
 
+Changes for 9.3:
+
+None.
+
+Changes for 9.2:
+
+The stepper now displays numbers according the the language settings.
+
+Changes for 9.1:
+
+None.
+
+Changes for 9.0:
+
+None.
+
+Changes for 8.18:
+
+None.
+
+Changes for 8.17:
+
+Repairs and improved testing around 2htdp/universe, thanks
+to Shu-hung You.
+
+Changes for 8.16:
+
+Bug fixes, thanks to Shu-hung You
+
+Changes for 8.15:
+
+Bug fixes, thanks to Mike Sperber and Robby Findler
+
+Changes for 8.14:
+
+None.
+
+Changes for 8.13:
+
+None.
+
+Changes fro 8.12:
+
+Bug fix, thanks to both Robby and Mike Sperber.
+
 Changes for 8.11:
 
 None.

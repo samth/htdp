@@ -37,7 +37,20 @@
                          (syntax-column stx)
                          (syntax-position stx)
                          (syntax-span stx)))))
-  (define test-expr-checked-for-syntax-error #`(convert-compile-time-error #,test-expr))
+
+  ;; -----------------------------------------------------------------------------
+  ;; We want to delay compile-time errors in the check position of
+  #;   (check-expect check expect)
+  ;; to the run-time phase so that students are encourgaed to run
+  ;; partial programs and get feedback on some of the tests. The
+  ;; "exemplar" package (Shriram, Daniel Patterson, Ben Lerner and
+  ;; Northwestern?) relies on this property in that it requests that
+  ;; students formulate tests WITHOUT even formulating a function header. 
+
+  (define test-expr-checked-for-syntax-error
+  #`(convert-compile-time-error #,test-expr))
+  ;; -----------------------------------------------------------------------------
+
   (if (eq? 'module (syntax-local-context))
       #`(define #,bogus-name
           #,(stepper-syntax-property
@@ -47,11 +60,14 @@
                       (['stepper-hint hint-tag]
                        ['stepper-hide-reduction #t]
                        ['stepper-use-val-as-final #t])
-                      (quasisyntax/loc stx
-                        (#,checker-proc-stx
-                         (lambda () #,test-expr-checked-for-syntax-error)
-                         #,@embedded-stxes
-                         #,src-info)))))
+                      (syntax-property
+                       (quasisyntax/loc stx
+                         (#,checker-proc-stx
+                          (lambda () #,test-expr-checked-for-syntax-error)
+                          #,@embedded-stxes
+                          #,src-info))
+                       'errortrace:annotate
+                       #t))))
              'stepper-skipto
              (append skipto/cdr
                      skipto/second ;; outer lambda

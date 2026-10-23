@@ -752,10 +752,10 @@ is immediately closed down.}
          ([cos-expr (or/c boolean? natural-number/c)])]{
  tells DrRacket whether to close the @racket[big-bang] window 
  @emph{after} the expression is evaluated. If @racket[cos-expr] is
- @racket[#false], which is the default, the window remains open. 
- If @racket[cos-expr] is @racket[#true], the window closes immediately. 
+ @racket[#true], which is the default, the window closes immediately.
+ If @racket[cos-expr] is @racket[#false], the window remains open for a long time.
  Finally, if @racket[cos-expr] is a natural number, the window closes
- @racket[cos-expr] seconds after the end of the evaluation.
+ @racket[cos-expr] seconds after the @racket[big-bang] expression is evaluated.
 }}
 
 @item{
@@ -1344,7 +1344,7 @@ optional handlers:
 }
 
 @defform/none[#:literals (on-tick)
-              (on-tick tick-expr rate-expr)
+              (on-tick tick-expr rate-expr limit-expr)
               #:contracts
               ([tick-expr (-> (unsyntax @tech{UniverseState}) (or/c (unsyntax @tech{UniverseState}) bundle?))]
                [rate-expr (and/c real? positive?)]

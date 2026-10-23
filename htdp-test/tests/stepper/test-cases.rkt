@@ -36,7 +36,12 @@
 ;; (before-after exps exps)
 ;; (before-error exps str)
 ;; (error str)
-;; (finished)
+;; (repetition lo hi (non-empty-listof step)) steps are repeated for [lo,hi] times (inclusive)
+;; (finished-stepping)
+;;
+;; The repetition form matches the steps greedily---it is not a regular expression form.
+;; It will try to match as many steps as possible.
+;;
 ;; an exps is a list of s-expressions with certain non-hygienic extensions:
 ;;  - (hilite X) denotes the s-expression X, only highlighted
 ;;  - any        denotes any s-expression (matches everything)
@@ -50,6 +55,10 @@
 ;;    expr1 ... :: expr2 ... -> expr3 ...)
 ;; means that `expr1 ...' is the original, the first step is
 ;;   (before-after (expr2 ...) (expr3 ...))
+;; to express repetitions, write
+;;    ::*[lo hi] expr2 ... -> expr3 ... -> expr4 ...
+;; where the range of ::* extends until the next :: or the next ::*
+;;
 ;; Cute stuff:
 ;; * use `::' to mark a new step that doesn't continue the previous one
 ;;     e1 :: e2 -> e3 -> e4
@@ -1135,6 +1144,42 @@
      :: 9 false (check-expect {(+ 1 1)} 2) -> 9 false (check-expect {2} 2)
      :: 9 false true (check-expect {(+ 2 2)} 4) -> 9 false true (check-expect {4} 4))
 
+  ;; check-satisfied is generally skipped
+  ;; UPDATE ME when the stepper supports check-satisfied
+  (t 'check-satisfied-identifier m:upto-int/lam
+     (check-expect 1 (+ 1 1)) (check-satisfied (* 2 2) even?) (check-expect 3 (+ 1 2))
+     :: (check-expect 1 {(+ 1 1)}) -> (check-expect 1 {2})
+     :: false (check-expect 3 {(+ 1 2)}) -> false (check-expect 3 {3}))
+
+  ;; non-identifier predicate in check-satisfied
+  ;; UPDATE ME when the stepper supports check-satisfied
+  (t 'check-satisfied-lambda m:intermediate-lambda/both
+     (check-satisfied (+ 2 3) (lambda (n) (even? (sub1 n)))) (check-expect 3 (+ 1 2))
+     :: (check-expect 3 {(+ 1 2)}) -> (check-expect 3 {3}))
+
+  ;; defined function in check-satisfied
+  ;; define/lambda from user code is stepped
+  ;; UPDATE ME when the stepper supports check-satisfied
+  (let* ([defs '(;; add2minus1 is stepped
+                 (define (add2minus1 n) (+ 2 n -1))
+                 ;; the (lambda (j) ...) part is also stepped since it has cms
+                 (define (curried-mul3 i) (lambda (j) (* 3 i j))))])
+    (t 'check-satisfied-defined m:intermediate-lambda/both
+       (define (add2minus1 n) (+ 2 n -1))
+       (define (curried-mul3 i) (lambda (j) (* 3 i j)))
+       (check-satisfied (add2minus1 5) even?)
+       (check-satisfied (curried-mul3 1) procedure?)
+       (check-satisfied (number? ((curried-mul3 2) 3)) boolean?)
+       (check-satisfied (curried-mul3 4) (lambda (f) (= (f 5) 60)))
+       :: ,@defs {(+ 2 5 -1)} -> ,@defs {6}
+       :: ... -> ,@defs {(lambda (j) (* 3 1 j))}
+       :: ... -> ,@defs {(lambda (j) (* 3 2 j))}
+       :: ... -> ,@defs {(* 3 2 3)}
+       :: ,@defs {(* 3 2 3)} -> ,@defs {18}
+       :: ... -> ,@defs {(lambda (j) (* 3 4 j))}  ;; (f 5) is inside user code, so it is
+       :: ... -> ,@defs {(* 3 4 5)}               ;; stepped through by the stepper; but
+       :: ,@defs {(* 3 4 5)} -> ,@defs {60}))     ;; but (= (f 5) 60) is not.
+
   (t 'check-random m:upto-int/lam
      (check-random (+ 3 4) (+ 2 5)) (+ 4 5)
      :: {(+ 4 5)} -> {9}
@@ -1144,7 +1189,7 @@
   (t 'check-expect-err m:upto-int/lam
      (check-expect 0 (sqrt 2))
      :: (check-expect 0 {(sqrt 2)}) -> (check-expect 0 {1.4142135623730951})
-     :: error: "check-expect cannot compare inexact numbers")
+     :: error: "check-expect: cannot compare inexact numbers")
 
   (t1 'check-within
       m:upto-int/lam
@@ -1205,6 +1250,59 @@
                       (9 false (check-expect (hilite 4) 4)))
         (finished-stepping)))
   
+  ;; NOTE: a straight-line big-bang test would not work because
+  ;; it will hang indefinitely, waiting for big-bang to terminate
+  (let ([defs '((require 2htdp/universe)
+                (require 2htdp/image)
+                (define (draw t) (empty-scene 50 50)))]
+        [img '(instantiate (class ...) ...)]) ;; #<image>; somehow `any` did not work?
+    ;; Somehow, we could not start big-bang with 2 or below to run only one or two steps
+    ;; because to-draw won't always get a chance to properly run.
+    ;;
+    ;; When the initial world is only 2 or 1, there will be extra steps after
+    ;; "finished-stepping" which also shows up in the actual Stepper GUI as two extra steps
+    ;; after "all of the definitions  have been successfully evaluated" is displayed.
+    ;;
+    ;; The (empty-scene 50 50) also shows up only after the final world 0 like:
+    ;;   :: ... -> ,@defs 0 {(empty-scene 50 50)} -> ,@defs 0 {,img}
+    ;;
+    ;; It seems as if `big-bang` has terminated too quickly, possibly due to high ticking
+    ;; frequency, causing out-of-ordered to-draw steps
+    (t 'big-bang m:upto-int/lam
+       ,@defs
+       (big-bang 4 [stop-when zero?] [close-on-stop #true]
+         [to-draw draw]
+         [on-tick sub1 1/8])
+       ;; The initial `draw` before the clock starts ticking
+       :: ,@defs {(empty-scene 50 50)} -> ,@defs {,img}
+       ::*[3 99] ... -> ,@defs {(empty-scene 50 50)} -> ,@defs {,img})) ;; `draw` for w=3..1
+  ;;       ^ ^~~ the additional repetition count is for potentially extra `draw` steps
+  ;;       |     provided `draw` is called more than once in one tick
+  ;;       +~~ if the tick frequency is too high, reduce the lower bound.
+
+  ;; Testing the current big-bang stepping behavior
+  ;; functions defined in user code are stepped, but lambdas in big-bang are not
+  ;; so: in to-draw: (first w), empty-scene, and overlay are invisible
+  (let ([defs '((require 2htdp/universe)
+                (require 2htdp/image)
+                (define (drawobj r) (circle r "solid" "red"))
+                (define (next w) (rest w)))]
+        [img '(instantiate (class ...) ...)]) ;; #<image>; somehow `any` did not work?
+    (t 'big-bang-lambda m:intermediate-lambda/both
+       ,@defs
+       (big-bang (list 25 18 11) [stop-when empty?] [close-on-stop #true]
+         [to-draw (lambda (w)
+                    (overlay (drawobj (first w))
+                             (empty-scene 60 60)))]
+         [on-tick next 1/8])
+       :: ,@defs {(circle 25 "solid" "red")} -> ,@defs {,img}
+       ::*[0 99] ... -> ,@defs {(circle 25 "solid" "red")}  ->  ,@defs {,img}  ;; drawobj
+       :: ... -> ,@defs {(rest (list 25 18 11))}     ->  ,@defs {(list 18 11)} ;; next
+       ::*[1 99] ... -> ,@defs {(circle 18 "solid" "red")}  ->  ,@defs {,img}  ;; drawobj
+       :: ... -> ,@defs {(rest (list 18 11))}        ->  ,@defs {(list 11)}    ;; next
+       ::*[1 99] ... -> ,@defs {(circle 11 "solid" "red")}  ->  ,@defs {,img}  ;; drawobj
+       :: ... -> ,@defs {(rest (list 11))}           ->  ,@defs {empty}))      ;; next
+
   ;;;;;;;;;;;;
   ;;
   ;;    SdP TESTS
@@ -1217,14 +1315,6 @@
   (define apply-nim-move
     (lambda (s)
       (if s s s)))"
-      '((finished-stepping)))
-
-  (t1 'big-bang
-      m:beginner
-      "(require 2htdp/image)
-(require 2htdp/universe)
-(define (f2 w) (text \"hi\" 30 \"red\"))
-(big-bang \"dummy\" [to-draw f2])"
       '((finished-stepping)))
   
 
